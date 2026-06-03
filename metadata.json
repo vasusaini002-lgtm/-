@@ -1,0 +1,6 @@
+{
+  "name": "Shramik Awas Portal",
+  "description": "Online registration form and receipt generator for Pravasi Mazdoor Awas Yojana - Mahatma Jyotiba Phule Shramik Awas Trust.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Custom hide rules for standard scrollbar browser elements if needed */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ==================== PRINT STYLES ==================== */
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11px !important;
+    line-height: 1.4 !important;
+  }
+
+  /* Hide everything on the webpage except our print preview target */
+  #root > div > header,
+  #root > div > main,
+  #root > div > footer,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Ensure the printed component spans full width and height with solid rendering */
+  .print\:block {
+    display: block !important;
+    width: 100% !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Avoid empty lines or footer headers appended by default browser settings */
+  @page {
+    size: A4;
+    margin: 8mm 6mm 10mm 6mm;
+  }
+
+  /* Retain graphic colors and background fills during print */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Border formatting specific to monochrome/laser paper margins */
+  .border-double {
+    border-style: double !important;
+  }
+}
