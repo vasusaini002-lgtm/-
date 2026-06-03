@@ -149,6 +149,63 @@ function generateRefNum(prefix: string): string {
   return `${prefix}-${year}${month}${day}-${rand}`;
 }
 
+// Generate sequential registration number with format MJP-YYYY-XXX
+function getNextRegistrationNum(regs: RegistrationFormData[], selectedDateStr: string): string {
+  const d = selectedDateStr ? new Date(selectedDateStr) : new Date();
+  const year = isNaN(d.getTime()) ? new Date().getFullYear() : d.getFullYear();
+  const prefix = `MJP-${year}-`;
+  
+  const matchingRegs = (regs || []).filter(r => r && r.registrationNum && r.registrationNum.toUpperCase().startsWith(prefix));
+  
+  let maxSeq = 0;
+  matchingRegs.forEach(r => {
+    const parts = r.registrationNum.split('-');
+    if (parts.length === 3) {
+      const seq = parseInt(parts[2], 10);
+      if (!isNaN(seq) && seq > maxSeq) {
+        maxSeq = seq;
+      }
+    }
+  });
+  
+  const nextSeq = maxSeq + 1;
+  const seqStr = nextSeq.toString().padStart(3, '0');
+  return `${prefix}${seqStr}`;
+}
+
+// Generate sequential receipt number in the format FYYYYY-YY/XXX
+function getNextReceiptNum(receipts: PaymentReceiptData[], selectedDateStr: string): string {
+  const d = selectedDateStr ? new Date(selectedDateStr) : new Date();
+  const validDate = isNaN(d.getTime()) ? new Date() : d;
+  
+  const m = validDate.getMonth();
+  const y = validDate.getFullYear();
+  
+  let startYear = y;
+  if (m < 3) { // Jan, Feb, Mar are index 0, 1, 2
+    startYear = y - 1;
+  }
+  const endYear = startYear + 1;
+  const prefix = `FY${startYear}-${endYear.toString().slice(-2)}/`; // e.g. FY2026-27/
+  
+  const matchingReceipts = (receipts || []).filter(r => r && r.receiptNum && r.receiptNum.toUpperCase().startsWith(prefix));
+  
+  let maxSeq = 0;
+  matchingReceipts.forEach(r => {
+    const parts = r.receiptNum.split('/');
+    if (parts.length === 2) {
+      const seq = parseInt(parts[1], 10);
+      if (!isNaN(seq) && seq > maxSeq) {
+        maxSeq = seq;
+      }
+    }
+  });
+  
+  const nextSeq = maxSeq + 1;
+  const seqStr = nextSeq.toString().padStart(3, '0');
+  return `${prefix}${seqStr}`;
+}
+
 const CasteMapping = {
   Saini: 'सैनी',
   Kushwaha: 'कुशवाहा',
@@ -191,9 +248,34 @@ export default function App() {
     if (localReceipts) setStoredReceipts(JSON.parse(localReceipts));
   }, []);
 
+  // Helpers to lazy-initialize registration number
+  const getInitialRegNum = (): string => {
+    try {
+      const localRegs = localStorage.getItem('shramik_registrations');
+      const regs = localRegs ? JSON.parse(localRegs) : [];
+      return getNextRegistrationNum(regs, new Date().toISOString().split('T')[0]);
+    } catch {
+      return `MJP-${new Date().getFullYear()}-001`;
+    }
+  };
+
+  const getInitialReceiptNum = (): string => {
+    try {
+      const localReceipts = localStorage.getItem('shramik_receipts');
+      const receipts = localReceipts ? JSON.parse(localReceipts) : [];
+      return getNextReceiptNum(receipts, new Date().toISOString().split('T')[0]);
+    } catch {
+      const y = new Date().getFullYear();
+      const m = new Date().getMonth();
+      const startYear = m < 3 ? y - 1 : y;
+      const endYear = startYear + 1;
+      return `FY${startYear}-${endYear.toString().slice(-2)}/001`;
+    }
+  };
+
   // Form State: Registration Form
   const initialRegForm: RegistrationFormData = {
-    registrationNum: generateRefNum('REG'),
+    registrationNum: getInitialRegNum(),
     date: new Date().toISOString().split('T')[0],
     fullName: '',
     fatherHusbandName: '',
@@ -223,7 +305,7 @@ export default function App() {
 
   // Form State: Receipt Form
   const initialReceiptForm: PaymentReceiptData = {
-    receiptNum: generateRefNum('REC'),
+    receiptNum: getInitialReceiptNum(),
     date: new Date().toISOString().split('T')[0],
     registrationNum: '',
     receiverName: '',
@@ -240,6 +322,54 @@ export default function App() {
   };
 
   const [receiptForm, setReceiptForm] = useState<PaymentReceiptData>(initialReceiptForm);
+
+  // Track previous values to only trigger when date or database length actually changes
+  const prevDateRef = useRef(regForm.date);
+  const prevDbLengthRef = useRef(storedRegistrations.length);
+  const isInitialLoadRef = useRef(true);
+
+  useEffect(() => {
+    const isDateChanged = prevDateRef.current !== regForm.date;
+    const isDbChanged = prevDbLengthRef.current !== storedRegistrations.length;
+    
+    if (isInitialLoadRef.current || isDateChanged || isDbChanged) {
+      const nextNum = getNextRegistrationNum(storedRegistrations, regForm.date);
+      setRegForm(prev => {
+        if (prev.registrationNum !== nextNum) {
+          return { ...prev, registrationNum: nextNum };
+        }
+        return prev;
+      });
+      
+      prevDateRef.current = regForm.date;
+      prevDbLengthRef.current = storedRegistrations.length;
+      isInitialLoadRef.current = false;
+    }
+  }, [storedRegistrations, regForm.date]);
+
+  // Track previous values for receipt form to trigger update only when date or length changes
+  const prevReceiptDateRef = useRef(receiptForm.date);
+  const prevReceiptDbLengthRef = useRef(storedReceipts.length);
+  const isReceiptInitialLoadRef = useRef(true);
+
+  useEffect(() => {
+    const isDateChanged = prevReceiptDateRef.current !== receiptForm.date;
+    const isDbChanged = prevReceiptDbLengthRef.current !== storedReceipts.length;
+
+    if (isReceiptInitialLoadRef.current || isDateChanged || isDbChanged) {
+      const nextNum = getNextReceiptNum(storedReceipts, receiptForm.date);
+      setReceiptForm(prev => {
+        if (prev.receiptNum !== nextNum) {
+          return { ...prev, receiptNum: nextNum };
+        }
+        return prev;
+      });
+
+      prevReceiptDateRef.current = receiptForm.date;
+      prevReceiptDbLengthRef.current = storedReceipts.length;
+      isReceiptInitialLoadRef.current = false;
+    }
+  }, [storedReceipts, receiptForm.date]);
 
   // Photo Selector Handler
   const handlePhotoUpload = (e: ChangeEvent<HTMLInputElement>) => {
@@ -275,6 +405,49 @@ export default function App() {
         amountInWords: `${words.hindi} (${words.english})`
       };
     });
+  };
+
+  // Auto-fills the Payment Receipt Form from a Registration Form item
+  const autofillReceiptFromRegistration = (reg: RegistrationFormData) => {
+    if (!reg) return;
+    
+    const annualFeeVal = reg.annualFee || '100';
+    const monthlyRentVal = reg.monthlyRent || '0';
+    const otherFeeVal = '0';
+    
+    const annual = parseFloat(annualFeeVal) || 0;
+    const rent = parseFloat(monthlyRentVal) || 0;
+    const other = parseFloat(otherFeeVal) || 0;
+    const total = annual + rent + other;
+    
+    const words = numberToWordsIndian(total);
+    
+    const formatDate = (dateStr: string) => {
+      if (!dateStr) return '';
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      }
+      return dateStr;
+    };
+    
+    let validity = '';
+    if (reg.validFrom && reg.validTo) {
+      validity = `${formatDate(reg.validFrom)} से ${formatDate(reg.validTo)}`;
+    }
+
+    setReceiptForm(prev => ({
+      ...prev,
+      registrationNum: reg.registrationNum,
+      registreeName: reg.fullName,
+      fatherHusbandName: reg.fatherHusbandName,
+      annualFeePaid: annualFeeVal,
+      monthlyRentPaid: monthlyRentVal,
+      otherFeePaid: otherFeeVal,
+      validityPeriod: validity,
+      totalAmount: total.toString(),
+      amountInWords: `${words.hindi} (${words.english})`
+    }));
   };
 
   // Form submission: Registration Form
@@ -510,9 +683,10 @@ export default function App() {
 
   // Setup sample demo variables for easy testing
   const loadDemoData = () => {
+    const todayStr = new Date().toISOString().split('T')[0];
     setRegForm({
-      registrationNum: generateRefNum('REG'),
-      date: new Date().toISOString().split('T')[0],
+      registrationNum: getNextRegistrationNum(storedRegistrations, todayStr),
+      date: todayStr,
       fullName: 'मदन लाल सैनी',
       fatherHusbandName: 'रामजी लाल सैनी',
       age: '42',
@@ -534,7 +708,7 @@ export default function App() {
       ],
       annualFee: '100',
       monthlyRent: '800',
-      validFrom: new Date().toISOString().split('T')[0],
+      validFrom: todayStr,
       validTo: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0],
       docAadhaar: true,
       docRationCard: true,
@@ -548,10 +722,11 @@ export default function App() {
   const loadDemoReceipt = () => {
     const totalRaw = 100 + 800 + 0;
     const words = numberToWordsIndian(totalRaw);
+    const todayStr = new Date().toISOString().split('T')[0];
     setReceiptForm({
-      receiptNum: generateRefNum('REC'),
+      receiptNum: getNextReceiptNum(storedReceipts, todayStr),
       date: new Date().toISOString().split('T')[0],
-      registrationNum: regForm.registrationNum || 'REG-260603-452',
+      registrationNum: regForm.registrationNum || 'MJP-2026-001',
       receiverName: 'राजेश मौर्य (ट्रस्टी)',
       registreeName: 'मदन लाल सैनी',
       fatherHusbandName: 'रामजी लाल सैनी',
@@ -1480,6 +1655,34 @@ export default function App() {
                     <p className="text-xs text-slate-600 mt-1">महात्मा ज्योतिबा फुले श्रमिक आवास ट्रस्ट</p>
                   </div>
 
+                  {/* Auto-fill Helper Dropdown */}
+                  {storedRegistrations.length > 0 && (
+                    <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-xl flex flex-col md:flex-row items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center gap-2 text-blue-900 font-semibold shrink-0">
+                        <Users className="w-4.5 h-4.5 text-amber-600 shrink-0" />
+                        <span>पंजीकृत आवेदक चुनें (Auto-Fill Details of Applicant):</span>
+                      </div>
+                      <select
+                        onChange={(e) => {
+                          const regNum = e.target.value;
+                          const found = storedRegistrations.find(r => r.registrationNum === regNum);
+                          if (found) {
+                            autofillReceiptFromRegistration(found);
+                          }
+                        }}
+                        value={receiptForm.registrationNum}
+                        className="w-full md:max-w-md bg-white border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-800 text-xs shadow-sm"
+                      >
+                        <option value="">-- पंजीकृत आवेदक का चयन करें (Choose Registered Applicant) --</option>
+                        {storedRegistrations.map((reg) => (
+                          <option key={reg.registrationNum} value={reg.registrationNum}>
+                            {reg.registrationNum} - {reg.fullName} {reg.subCaste ? `(${CasteMapping[reg.subCaste as keyof typeof CasteMapping] || reg.subCaste})` : ''} - {reg.mobileNum}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6 pt-4 border-t border-dashed border-slate-300">
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">रसीद संख्या (Receipt Number) <span className="text-rose-500">*</span></label>
@@ -1799,8 +2002,18 @@ export default function App() {
                               )}
                               <div className="flex gap-1.5 mt-1">
                                 <button 
+                                  onClick={() => {
+                                    autofillReceiptFromRegistration(reg);
+                                    setActiveTab('receipt');
+                                  }}
+                                  className="p-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold flex items-center gap-0.5 transition-all shadow-sm"
+                                  title="इस आवेदक के लिए रसीद बनाएँ (Generate membership receipt for this applicant)"
+                                >
+                                  <Receipt className="w-3 h-3 text-white/90" /> रसीद
+                                </button>
+                                <button 
                                   onClick={() => handlePrintRegistration(reg)}
-                                  className="p-1 px-2 bg-white text-blue-900 border hover:bg-blue-50 rounded-lg text-[10px] font-bold flex items-center gap-0.5"
+                                  className="p-1 px-2 bg-white text-blue-900 border hover:bg-blue-50 rounded-lg text-[10px] font-bold flex items-center gap-0.5 transition-all"
                                   title="Print full A4 form"
                                 >
                                   <Printer className="w-3 h-3" /> प्रिंट
@@ -2026,36 +2239,52 @@ export default function App() {
                     <h4 className="font-bold text-emerald-950 mt-4 text-sm">डेटा सुरक्षित सहेजा गया!</h4>
                     <p className="text-xs text-slate-600 mt-2 leading-relaxed px-2">{submitStatus.message}</p>
                     
-                    <div className="flex gap-2 w-full mt-6">
-                      <button
-                        onClick={() => {
-                          setSubmitStatus(prev => ({ ...prev, show: false }));
-                          // reset forms to generate new identifiers
-                          if (activeTab === 'register') {
-                            setRegForm({ ...initialRegForm, registrationNum: generateRefNum('REG') });
-                          } else {
-                            setReceiptForm({ ...initialReceiptForm, receiptNum: generateRefNum('REC') });
-                          }
-                        }}
-                        className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold font-sans transition-all"
-                      >
-                        नया फॉर्म भरें (Fill New)
-                      </button>
-                      <button
-                        onClick={() => {
-                          setSubmitStatus(prev => ({ ...prev, show: false }));
-                          // Trigger print immediately on the submitted item
-                          if (activeTab === 'register') {
-                            handlePrintRegistration(regForm);
-                          } else {
-                            handlePrintReceipt(receiptForm);
-                          }
-                        }}
-                        className="flex-1 py-2 bg-blue-900 hover:bg-indigo-950 text-white rounded-xl text-xs font-semibold font-sans transition-all flex items-center justify-center gap-1.5"
-                      >
-                        <Printer className="w-3.5 h-3.5" />
-                        अभी प्रिंट करें (Print Now)
-                      </button>
+                    <div className="flex flex-col gap-2 w-full mt-6">
+                      {activeTab === 'register' && (
+                        <button
+                          onClick={() => {
+                            setSubmitStatus(prev => ({ ...prev, show: false }));
+                            autofillReceiptFromRegistration(regForm);
+                            setActiveTab('receipt');
+                          }}
+                          className="w-full py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                        >
+                          <Receipt className="w-3.5 h-3.5 text-white/90" />
+                          सम्बद्ध रसीद जनरेट करें (Generate Receipt)
+                        </button>
+                      )}
+
+                      <div className="flex gap-2 w-full">
+                        <button
+                          onClick={() => {
+                            setSubmitStatus(prev => ({ ...prev, show: false }));
+                            // reset forms to generate new identifiers
+                            if (activeTab === 'register') {
+                              setRegForm({ ...initialRegForm, registrationNum: getNextRegistrationNum(storedRegistrations, new Date().toISOString().split('T')[0]) });
+                            } else {
+                              setReceiptForm({ ...initialReceiptForm, receiptNum: getNextReceiptNum(storedReceipts, new Date().toISOString().split('T')[0]) });
+                            }
+                          }}
+                          className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-semibold font-sans transition-all"
+                        >
+                          नया फॉर्म भरें (Fill New)
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSubmitStatus(prev => ({ ...prev, show: false }));
+                            // Trigger print immediately on the submitted item
+                            if (activeTab === 'register') {
+                              handlePrintRegistration(regForm);
+                            } else {
+                              handlePrintReceipt(receiptForm);
+                            }
+                          }}
+                          className="flex-1 py-2 bg-blue-900 hover:bg-indigo-950 text-white rounded-xl text-xs font-semibold font-sans transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          अभी प्रिंट करें (Print Now)
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
